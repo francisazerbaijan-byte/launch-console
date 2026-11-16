@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PLAYER — ZIP Web Launcher</title><style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif}body{margin:0;min-height:100vh;background:#111826;color:#f0f4fc;display:grid;place-items:center}main{width:min(650px,92vw);background:#202b3d;border:1px solid #4c6079;border-radius:18px;padding:26px;box-sizing:border-box}h1{margin-top:0}p{line-height:1.5;color:#d2dbe8}input{margin:16px 0;max-width:100%}button{background:#6981f1;color:#fff;border:0;border-radius:9px;padding:12px 16px;margin:5px 6px 6px 0;cursor:pointer}button:disabled{opacity:.5}progress{width:100%}#status{overflow-wrap:anywhere;white-space:pre-wrap}code{color:#ffdda5}</style><script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script></head><body><main>
+<h1>PLAYER</h1><p>Select an authorized, <strong>browser-ready HTML5 ZIP</strong> containing <code>index.html</code>. Extracted files stay in your browser, not on GitHub.</p>
+<input id="zip" type="file" accept=".zip,application/zip"><div><button id="open" disabled>Open extracted website</button><button id="clear">Clear stored files</button></div><progress id="bar" value="0" max="100" hidden></progress><p id="status" role="status">Ready.</p><small>Does not convert desktop executables, remove licensing checks, or guarantee compatibility. Large archives may exceed device memory or storage. Only open ZIPs you trust; their JavaScript can run in your browser.</small>
+</main><script>
+(()=>{
+"use strict";
+const picker=document.getElementById("zip"),open=document.getElementById("open"),clearBtn=document.getElementById("clear"),bar=document.getElementById("bar"),status=document.getElementById("status");const DB="zip-launch-console-v1",STORE="files";let scope="",busy=false;
+const say=s=>status.textContent=s;
+function connect(){return new Promise((yes,no)=>{const r=indexedDB.open(DB,1);r.onupgradeneeded=()=>{if(!r.result.objectStoreNames.contains(STORE))r.result.createObjectStore(STORE)};r.onsuccess=()=>yes(r.result);r.onerror=()=>no(r.error)})}
+function transaction(db,mode,callback){return new Promise((yes,no)=>{const tx=db.transaction(STORE,mode),req=callback(tx.objectStore(STORE));tx.oncomplete=()=>yes(req&&req.result);tx.onerror=()=>no(tx.error);tx.onabort=()=>no(tx.error)})}
+function valid(p){return !!p&&!p.startsWith("/")&&!p.includes("\\")&&!p.split("/").some(s=>!s||s===".."||s===".")}
+async function init(){try{if(!navigator.serviceWorker||!indexedDB)throw Error("Service worker or browser storage unavailable");const reg=await navigator.serviceWorker.register("./sw.js");scope=reg.scope;await navigator.serviceWorker.ready;const db=await connect();const saved=await transaction(db,"readonly",s=>s.get("__ready__"));db.close();if(saved){open.disabled=false;say("Saved website ready ("+saved.count+" files).")}}catch(e){say("Setup error: "+e.message+". Make sure GitHub Pages is enabled.")}}
+picker.onchange=async()=>{const file=picker.files&&picker.files[0];if(!file||busy)return;busy=true;picker.disabled=true;open.disabled=true;bar.hidden=false;bar.value=0;let db;
+try{if(!window.JSZip)throw Error("Could not load ZIP parser; check internet connection");if(!scope)throw Error("Service worker unavailable. Refresh the page.");say("Reading archive directory: "+(file.size/1048576).toFixed(1)+" MB");
+const zip=await JSZip.loadAsync(file);const names=Object.keys(zip.files).filter(n=>!zip.files[n].dir&&valid(n));const indexes=names.filter(n=>n.toLowerCase()==="index.html"||n.toLowerCase().endsWith("/index.html"));if(!indexes.length)throw Error("No index.html found. The ZIP is not a ready-to-run HTML5 website.");
+indexes.sort((a,b)=>{const score=x=>(x.toLowerCase().endsWith("/www/index.html")?0:20)+x.split("/").length;return score(a)-score(b)});const prefix=indexes[0].slice(0,-"index.html".length);const entries=names.filter(n=>n.startsWith(prefix)).map(n=>({path:n.slice(prefix.length),file:zip.files[n]})).filter(e=>valid(e.path));if(entries.length>15000)throw Error("Archive contains too many files");
+db=await connect();await transaction(db,"readwrite",s=>s.clear());let count=0;
+for(const e of entries){const blob=await e.file.async("blob");await transaction(db,"readwrite",s=>s.put(blob,e.path));count++;bar.value=Math.round(count*100/entries.length);if(count%10===0||count===entries.length)say("Extracting "+count+"/"+entries.length+" files ("+bar.value+"%)")}
+await transaction(db,"readwrite",s=>s.put({count},"__ready__"));open.disabled=false;say("Extracted "+count+" files. Select Open extracted website.");
+}catch(err){say("Import stopped: "+(err.message||String(err))+". Files were not uploaded to GitHub.")}finally{if(db)db.close();picker.disabled=false;busy=false;bar.hidden=true}};
+open.onclick=()=>{if(scope)location.href=scope+"play/index.html"};
+clearBtn.onclick=async()=>{if(busy)return;try{const db=await connect();await transaction(db,"readwrite",s=>s.clear());db.close();open.disabled=true;say("Stored files cleared.")}catch(e){say("Clear failed: "+e.message)}};
+init();
+})();
+</script></body></html>

@@ -1,2 +1,63 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PLAYER</title><meta http-equiv="refresh" content="0; url=./PLAYER.html"><link rel="canonical" href="./PLAYER.html"></head><body><p>Opening <a href="./PLAYER.html">PLAYER</a>…</p><script>location.replace("./PLAYER.html"+location.search+location.hash);</script></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ZIP Shrinker — Target 500 MB</title>
+<style>
+:root{font-family:system-ui,Arial,sans-serif;color-scheme:dark}*{box-sizing:border-box}body{background:#0e1421;color:#eef3ff;min-height:100vh;margin:0;display:grid;place-items:center;padding:20px}main{width:min(720px,100%);background:#1c283c;border:1px solid #3d5270;border-radius:20px;padding:30px;box-shadow:0 20px 60px #0004}h1{font-size:1.8rem;margin:0 0 12px}p{color:#bfcbde;line-height:1.6}label{display:block;margin:22px 0 12px;padding:25px;border:2px dashed #6981ad;border-radius:12px;text-align:center;cursor:pointer}label:hover{background:#283b55}input[type=file]{display:none}button,.download{display:inline-block;background:#748ef8;border:0;border-radius:9px;padding:13px 18px;color:#fff;font-size:1rem;font-weight:700;cursor:pointer;text-decoration:none}button:disabled{opacity:.5;cursor:not-allowed}.download{background:#2c8e70;margin-left:8px}.download[hidden],progress[hidden]{display:none}progress{width:100%;height:18px;margin:18px 0}.stats{background:#111b2d;border-radius:10px;padding:14px;margin:18px 0;display:grid;gap:7px}small{color:#aabbd0}#status{white-space:pre-wrap;overflow-wrap:anywhere}strong{color:#fff}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js" defer></script>
+</head>
+<body><main>
+<h1>ZIP Shrinker</h1>
+<p>Recompress a ZIP in your browser, aiming for <strong>500 MB (500,000,000 bytes) or less</strong>. The original files are preserved; this doesn't remove game data or convert a desktop game to HTML.</p>
+<label for="source">Choose a ZIP file to recompress<br><small>Files stay on your device; nothing is uploaded.</small></label>
+<input type="file" accept=".zip,application/zip" id="source">
+<div class="stats"><div>Target: <strong>500.00 MB</strong></div><div id="before">Original: —</div><div id="after">Result: —</div></div>
+<button id="compress" disabled>Compress ZIP</button><a class="download" id="download" hidden>Download result</a>
+<progress id="progress" value="0" max="100" hidden></progress>
+<p id="status" role="status">Select a ZIP to begin.</p>
+<small><strong>Important:</strong> Already-compressed ZIPs (especially those containing pictures, music, video, or encrypted assets) may not shrink enough. Compression cannot guarantee an exact output size. A ~599 MB ZIP may require substantial RAM; on a Chromebook, the browser might run out of memory.</small>
+</main>
+<script>
+(()=>{
+"use strict";
+const TARGET=500000000;
+const source=document.getElementById("source"),button=document.getElementById("compress"),download=document.getElementById("download"),bar=document.getElementById("progress"),before=document.getElementById("before"),after=document.getElementById("after"),status=document.getElementById("status");
+const MB=n=>(n/1000000).toFixed(2)+" MB";
+let file=null,objectURL=null;
+function say(s){status.textContent=s}
+function resetDownload(){if(objectURL){URL.revokeObjectURL(objectURL);objectURL=null}download.hidden=true;download.removeAttribute("href");after.textContent="Result: —"}
+source.onchange=()=>{file=source.files?.[0]||null;resetDownload();button.disabled=!file;before.textContent="Original: "+(file?MB(file.size):"—");say(file?"Ready to recompress "+file.name+".":"Select a ZIP to begin.")};
+button.onclick=async()=>{
+ if(!file||!window.JSZip)return;
+ button.disabled=true;source.disabled=true;resetDownload();bar.hidden=false;bar.value=0;
+ try{
+  say("Reading ZIP archive...");
+  const archive=await JSZip.loadAsync(file,{checkCRC32:false});
+  const entries=Object.values(archive.files);
+  if(entries.length>20000)throw Error("This ZIP has more than 20,000 entries; this browser tool is not suitable for it.");
+  const newZip=new JSZip();
+  let done=0;
+  for(const entry of entries){
+   if(entry.dir){newZip.folder(entry.name);continue}
+   // Decode and re-add each file to force a fresh high-compression DEFLATE pass.
+   const raw=await entry.async("uint8array");
+   newZip.file(entry.name,raw,{binary:true,date:entry.date,compression:"DEFLATE",compressionOptions:{level:9}});
+   done++;if(done%12===0){say("Preparing files: "+done+" / "+entries.length);await new Promise(r=>setTimeout(r,0))}
+  }
+  say("Recompressing ZIP at maximum DEFLATE level...");
+  const result=await newZip.generateAsync({type:"blob",compression:"DEFLATE",compressionOptions:{level:9},streamFiles:true},metadata=>{bar.value=Math.min(100,metadata.percent);});
+  after.textContent="Result: "+MB(result.size)+" ("+result.size.toLocaleString()+" bytes)";
+  objectURL=URL.createObjectURL(result);
+  download.href=objectURL;
+  download.download=file.name.replace(/\.zip$/i,"")+"-recompressed.zip";
+  download.hidden=false;
+  const saved=100*(1-result.size/file.size);
+  if(result.size<=TARGET){say("Target reached: the ZIP is "+MB(result.size)+" (saved "+saved.toFixed(1)+"%). Files were preserved.");}
+  else{say("Target NOT reached. Result is "+MB(result.size)+", which is "+MB(result.size-TARGET)+" above 500 MB. Already-compressed assets may not shrink enough without removing or changing data.");}
+ }catch(e){say("Compression failed: "+(e?.message||String(e))+". Large ZIPs may exceed available browser memory.");}
+ finally{button.disabled=!file;source.disabled=false;bar.hidden=true}
+};
+})();
+</script></body></html>
